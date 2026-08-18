@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => ({
 					kernelHost({
 						id: 'justfiles.code',
 						name: 'Code',
-						icon: 'icon.png',
+						icon: 'icon.svg',
 						description: 'Build and run apps directly in JustFiles.',
 						app: 'src/app.ts',
 						gui: 'src/gui.tsx',
