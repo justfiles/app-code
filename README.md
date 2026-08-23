@@ -25,6 +25,21 @@ pnpm dev
 `pnpm dev` starts a local host that emulates the JustFiles runtime. The app does not need a
 JustFiles installation for local development.
 
+To run this build in a local Frieren host, start the watch build:
+
+```sh
+pnpm build --watch
+```
+
+The build prints its local store URL. Start Frieren with that URL:
+
+```sh
+VITE_FRIEREN_DEV_APP_STORE=http://localhost:4173/store.json pnpm dev
+```
+
+The build serves the same store, manifest, and asset URL model as JustApps. Frieren installs a
+changed build and reloads an open Code window.
+
 ## Check
 
 ```sh
