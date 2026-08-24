@@ -10,6 +10,7 @@ afterEach(async () => {
 })
 
 test('local development can run, stop, and install a draft', async () => {
+	const template = process.env.DEVKIT_REACT_E2E === '1' ? 'react' : 'plain'
 	server = await createServer({
 		root: resolve(import.meta.dirname, '..'),
 		logLevel: 'silent',
@@ -35,7 +36,7 @@ test('local development can run, stop, and install a draft', async () => {
 		return response.json() as Promise<T>
 	}
 
-	await invoke('create', { name: 'Local Counter', id: 'local.counter' })
+	await invoke('create', { name: 'Local Counter', id: 'local.counter', template })
 	await invoke('open', { slug: 'local.counter' })
 	expect(await invoke('typecheck', {})).toEqual({ diagnostics: [] })
 	const result = await invoke<{

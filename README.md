@@ -10,7 +10,8 @@ and installs the finished app.
 
 Code owns the fixed SDK that a draft compiles and type-checks against. `devkit-sysroot.ts`
 writes it to `dist/devkit/` at build time, and `include: ['devkit/**']` carries it into the
-app bundle — so a host needs no `node_modules` and no package resolver to build a draft.
+app bundle, so a host needs no `node_modules` for the platform SDK. A project can also declare
+pinned esm.sh imports in `project.json`; the host resolves and caches those browser modules.
 
 The bytes come from `@justfiles/app`, which bakes them into its npm package. Bumping that
 dependency is what moves the SDK a draft sees.

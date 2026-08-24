@@ -3,7 +3,7 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react'
 import type { CodeApp } from './app'
 import { LinkButton, PrimaryButton, ScreenWrap, TextField } from './controls'
 import { messageOf, type Project } from './gui-util'
-import { type ProjectMeta, slugifyName } from './projects'
+import { type ProjectMeta, type ProjectTemplate, slugifyName } from './projects'
 
 export function GalleryScreen(props: {
 	projects: Project[]
@@ -27,7 +27,7 @@ export function GalleryScreen(props: {
 					<div className="app-code-empty-title">No projects yet</div>
 					<div className="app-code-empty-copy">Create your first app to get started.</div>
 					<div className="app-code-empty-copy">
-						Apps build against the platform SDK only — external npm packages aren't supported.
+						Use the platform SDK, or add pinned browser packages from esm.sh.
 					</div>
 					<PrimaryButton label="+ New Project" onClick={props.onNew} />
 				</div>
@@ -81,6 +81,7 @@ export function NewProjectScreen(props: {
 	const [name, setName] = useState('')
 	const [id, setId] = useState(() => `${props.org()}.app`)
 	const [idEdited, setIdEdited] = useState(false)
+	const [template, setTemplate] = useState<ProjectTemplate>('plain')
 	const [error, setError] = useState('')
 	const [creating, setCreating] = useState(false)
 	useEffect(() => nameRef.current?.focus(), [])
@@ -98,7 +99,8 @@ export function NewProjectScreen(props: {
 		try {
 			const created = await props.client.create({
 				name: projectName,
-				id: projectId
+				id: projectId,
+				template
 			})
 			props.rememberOrg(projectId)
 			await props.onCreated(created.slug)
@@ -137,8 +139,20 @@ export function NewProjectScreen(props: {
 						Use your GitHub user or organization: &lt;github-login&gt;.&lt;app&gt;
 					</div>
 				</TextField>
+				<label className="app-code-field">
+					<span className="app-code-field-label">Template</span>
+					<select
+						value={template}
+						onChange={(event) => setTemplate(event.currentTarget.value as ProjectTemplate)}
+						className="app-code-input"
+					>
+						<option value="plain">Plain DOM</option>
+						<option value="react">React</option>
+					</select>
+				</label>
 				<div className="app-code-hint">
-					Apps build against the platform SDK only — external npm packages aren't supported.
+					Projects can use pinned browser packages from esm.sh. Add package URLs in Project
+					Settings.
 				</div>
 				<div className="app-code-form-error">{error}</div>
 			</form>
@@ -157,6 +171,7 @@ export function SettingsScreen(props: {
 	const [name, setName] = useState(props.meta.name)
 	const [version, setVersion] = useState(props.meta.version ?? '')
 	const [description, setDescription] = useState(props.meta.description ?? '')
+	const [imports, setImports] = useState(() => JSON.stringify(props.meta.imports ?? {}, null, 2))
 	const [error, setError] = useState('')
 	const [saving, setSaving] = useState(false)
 	const [exporting, setExporting] = useState(false)
@@ -172,10 +187,12 @@ export function SettingsScreen(props: {
 		}
 		setSaving(true)
 		try {
+			const importMap = parseImportMap(imports)
 			await props.client.saveMeta({
 				name: projectName,
 				version: version.trim() || undefined,
-				description: description.trim() || undefined
+				description: description.trim() || undefined,
+				imports: importMap
 			})
 			props.onClose()
 		} catch (err) {
@@ -219,6 +236,22 @@ export function SettingsScreen(props: {
 						className="app-code-textarea"
 					/>
 				</label>
+				<label className="app-code-field">
+					<span className="app-code-field-label">Browser imports</span>
+					<textarea
+						value={imports}
+						onChange={(event) => setImports(event.currentTarget.value)}
+						rows={8}
+						spellCheck={false}
+						className="app-code-textarea app-code-imports-input"
+					/>
+					<div className="app-code-hint">
+						Enter a JSON object of bare imports and pinned https://esm.sh URLs.
+						{props.meta.compiler?.jsx === 'react-jsx'
+							? ' This project uses automatic React JSX.'
+							: ''}
+					</div>
+				</label>
 				<div className="app-code-form-error">{error}</div>
 			</form>
 			<div className="app-code-settings-divider" />
@@ -251,4 +284,17 @@ export function SettingsScreen(props: {
 			</div>
 		</ScreenWrap>
 	)
+}
+
+function parseImportMap(source: string): Record<string, string> {
+	const value: unknown = JSON.parse(source)
+	if (!value || typeof value !== 'object' || Array.isArray(value)) {
+		throw new Error('Browser imports must be a JSON object.')
+	}
+	for (const [specifier, url] of Object.entries(value)) {
+		if (!specifier || typeof url !== 'string') {
+			throw new Error('Each browser import must map a name to a URL string.')
+		}
+	}
+	return value as Record<string, string>
 }
