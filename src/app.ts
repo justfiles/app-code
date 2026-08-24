@@ -223,12 +223,14 @@ export const app = defineApp({
 		// Create a new project by name + bundle id, then return its slug (the id).
 		// The GUI follows up with `open({ slug })`. Seeding lives here, not in `open`.
 		create: p.procedure({
-			description: 'Create a new project by name and bundle id.',
+			description: 'Create a new project from the plain DOM or React template.',
 			schema: v.object({
 				name: v.pipe(v.string(), v.trim(), v.minLength(1)),
-				id: bundleIdSchema
+				id: bundleIdSchema,
+				template: v.optional(v.picklist(['plain', 'react']))
 			}),
-			run: ({ name, id }, app) => createProject(volumeApi(app), name, id)
+			run: ({ name, id, template }, app) =>
+				createProject(volumeApi(app), name, id, template ?? 'plain')
 		}),
 		// Load (not build) an existing project: read its name, scan files, compute
 		// the hash, and commit the opened snapshot with `build: null`. It does NOT
@@ -277,7 +279,8 @@ export const app = defineApp({
 			schema: v.object({
 				name: v.pipe(v.string(), v.trim(), v.minLength(1)),
 				version: v.optional(v.string()),
-				description: v.optional(v.string())
+				description: v.optional(v.string()),
+				imports: v.optional(v.record(v.string(), v.string()))
 			}),
 			async run(fields, app) {
 				const slug = reqSlug(app)
@@ -331,8 +334,8 @@ export const app = defineApp({
 			}
 		}),
 		// Type-check the current source via the engine; returns diagnostics for the
-		// Problems panel (and the agent). Surfaces CAPABILITY_UNAVAILABLE where the
-		// host has no checker (browser) — the GUI treats that as "no panel".
+		// Problems panel and the agent. The GUI still tolerates older hosts that
+		// return CAPABILITY_UNAVAILABLE.
 		typecheck: p.procedure({
 			description: 'Type-check the current app source and return diagnostics.',
 			schema: v.object({}),

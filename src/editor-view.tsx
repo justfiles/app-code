@@ -3,6 +3,7 @@ import type { DevkitPreview, Diagnostic } from '@justfiles/app/capabilities/devk
 import type { ReactNode, PointerEvent as ReactPointerEvent } from 'react'
 import { type CodeApp, type CodeState, statusOf } from './app'
 import { createEditor } from './editor'
+import { createProblemChecks } from './editor-check'
 import { EditorScreen, type EditorScreenProps } from './editor-screen'
 import { createWriter, downloadZip, messageOf, type SourceView, STATUS } from './gui-util'
 import type { ProjectMeta } from './projects'
@@ -44,9 +45,8 @@ export function createEditorView(
 	// failed first build returns the button to Run.
 	let launched = false
 	let mounted = false
-	// Type-check diagnostics, refreshed after each build and rendered inline in the
-	// editor (filtered to the open file). Empty where the host has no checker
-	// (typecheck → CAPABILITY_UNAVAILABLE).
+	// Build and type diagnostics share one panel. File diagnostics also appear in
+	// the editor.
 	let problems: Diagnostic[] = []
 	let installing = false
 	let installLabel = 'Install'
@@ -68,10 +68,12 @@ export function createEditorView(
 		try {
 			await client.write({ path, content })
 			if (launched) await runBuild()
+			else problemChecks.run()
 		} catch {}
 	}, 1000)
 	const code = createEditor((content) => {
 		if (!editorPath) return
+		problemChecks.change()
 		if (!localDirty) {
 			localDirty = true
 			patch()
@@ -102,23 +104,24 @@ export function createEditorView(
 		)
 	}
 
-	// Refresh diagnostics from the engine type-checker, then render them inline in
-	// the editor. A failure (e.g. the host has no checker) just clears them — the
-	// build/run path is unaffected.
-	const refreshProblems = () => {
-		void client
-			.typecheck({})
-			.then((result) => {
-				if (!live) return
-				problems = result.diagnostics
-				pushDiagnostics()
-			})
-			.catch(() => {
-				if (!live) return
-				problems = []
-				pushDiagnostics()
-			})
-	}
+	// Typecheck uses the same fetch and lock path as compile. Run already compiles,
+	// so the background check only asks TypeScript and does not build twice.
+	const problemChecks = createProblemChecks(
+		async () => {
+			try {
+				return (await client.typecheck({})).diagnostics
+			} catch (error) {
+				return messageOf(error).includes('CAPABILITY_UNAVAILABLE')
+					? []
+					: [failedDiagnostic('typecheck', error)]
+			}
+		},
+		(diagnostics) => {
+			problems = diagnostics
+			pushDiagnostics()
+			patch()
+		}
+	)
 
 	const install = () => {
 		if (installing) return
@@ -216,7 +219,7 @@ export function createEditorView(
 					await runBuild()
 				} else {
 					patch()
-					refreshProblems()
+					problemChecks.run()
 				}
 			}
 		})()
@@ -305,6 +308,7 @@ export function createEditorView(
 			name: displayName(),
 			settings,
 			settingsMeta,
+			problems,
 			client,
 			onSettings: openSettings,
 			onCloseSettings: closeSettings,
@@ -380,6 +384,7 @@ export function createEditorView(
 		destroy() {
 			live = false
 			readToken++
+			problemChecks.stop()
 			writer.flush()
 			code.destroy()
 		}
@@ -399,5 +404,18 @@ function versionedPreviewSrc(
 		return url.href
 	} catch {
 		return `${preview.src}${preview.src.includes('?') ? '&' : '?'}v=${encodeURIComponent(version)}`
+	}
+}
+
+function failedDiagnostic(source: string, error: unknown): Diagnostic {
+	return {
+		file: '',
+		range: {
+			start: { line: 0, character: 0 },
+			end: { line: 0, character: 0 }
+		},
+		severity: 'error',
+		source,
+		message: messageOf(error)
 	}
 }

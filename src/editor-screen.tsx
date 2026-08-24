@@ -1,4 +1,5 @@
 import type { Client } from '@justfiles/app'
+import type { Diagnostic } from '@justfiles/app/capabilities/devkit'
 import { FileTree as PierreFileTree, useFileTree } from '@pierre/trees/react'
 import { type PointerEvent as ReactPointerEvent, useEffect, useRef } from 'react'
 import type { CodeApp, CodeState } from './app'
@@ -16,6 +17,7 @@ export type EditorScreenProps = {
 	name: string
 	settings: boolean
 	settingsMeta: ProjectMeta | null
+	problems: Diagnostic[]
 	client: Client<CodeApp>
 	onSettings: () => void
 	onCloseSettings: () => void
@@ -51,6 +53,8 @@ export function EditorScreen(props: EditorScreenProps) {
 		props.source.content !== null
 	const fallback = ready ? null : fallbackText(props.view, props.source)
 	const build = props.view.build
+	const diagnostics =
+		props.problems.length > 0 ? props.problems.map(formatDiagnostic) : (build?.diagnostics ?? [])
 
 	return (
 		<>
@@ -158,15 +162,15 @@ export function EditorScreen(props: EditorScreenProps) {
 					) : null}
 				</div>
 
-				<div className="app-code-bottom-bar" hidden={!build}>
+				<div className="app-code-bottom-bar" hidden={!build && diagnostics.length === 0}>
 					<div
 						className={`app-code-build-message ${build?.result === 'ok' ? 'is-ok' : 'is-error'}`}
 						hidden={!build}
 					>
 						{build?.message ?? ''}
 					</div>
-					<pre className="app-code-diagnostics" hidden={!build || build.diagnostics.length === 0}>
-						{build?.diagnostics.join('\n') ?? ''}
+					<pre className="app-code-diagnostics" hidden={diagnostics.length === 0}>
+						{diagnostics.join('\n')}
 					</pre>
 				</div>
 
@@ -195,6 +199,13 @@ export function EditorScreen(props: EditorScreenProps) {
 			) : null}
 		</>
 	)
+}
+
+function formatDiagnostic(diagnostic: Diagnostic): string {
+	const code = diagnostic.code ? ` ${diagnostic.code}` : ''
+	const label = `[${diagnostic.severity} ${diagnostic.source}${code}]`
+	if (!diagnostic.file) return `${label} ${diagnostic.message}`
+	return `${diagnostic.file}:${diagnostic.range.start.line + 1}:${diagnostic.range.start.character + 1} ${label} ${diagnostic.message}`
 }
 
 function CodeMirrorHost({ editor, ready }: { editor: Editor; ready: boolean }) {

@@ -70,7 +70,7 @@ test('listProjects returns {slug,name}, tolerating a missing project.json', asyn
 	])
 })
 
-test('createProject rejects a bad id, a dup id; seeds project.json', async () => {
+test('createProject rejects a bad id and a duplicate id, then seeds the plain template', async () => {
 	const vol = fakeVolume()
 	await expect(createProject(vol, 'X', 'nope')).rejects.toThrow()
 	await expect(createProject(vol, 'X', 'com.example.x')).rejects.toThrow()
@@ -78,9 +78,29 @@ test('createProject rejects a bad id, a dup id; seeds project.json', async () =>
 	expect(slug).toBe('alice.x')
 	expect(JSON.parse(vol.dump()['/projects/alice.x/project.json']!)).toMatchObject({
 		id: 'alice.x',
-		name: 'X'
+		name: 'X',
+		gui: 'src/gui.ts'
 	})
+	expect(vol.dump()['/projects/alice.x/src/gui.ts']).toContain('defineGUI')
 	await expect(createProject(vol, 'X2', 'alice.x')).rejects.toThrow(/exists/)
+})
+
+test('createProject seeds React JSX and pinned browser imports', async () => {
+	const vol = fakeVolume()
+	await createProject(vol, 'React Counter', 'alice.react-counter', 'react')
+	const files = vol.dump()
+	const meta = JSON.parse(files['/projects/alice.react-counter/project.json']!)
+	expect(meta).toMatchObject({
+		gui: 'src/gui.tsx',
+		compiler: { jsx: 'react-jsx' },
+		imports: {
+			react: 'https://esm.sh/react@19.1.1',
+			'react/jsx-runtime': 'https://esm.sh/react@19.1.1/jsx-runtime',
+			'react-dom/client': 'https://esm.sh/react-dom@19.1.1/client?bundle&deps=react@19.1.1'
+		}
+	})
+	expect(files['/projects/alice.react-counter/src/gui.tsx']).toContain("from 'react-dom/client'")
+	expect(files['/projects/alice.react-counter/src/gui.ts']).toBeUndefined()
 })
 
 test('slugifyName derives a sane id segment', () => {
@@ -100,6 +120,18 @@ test('saveMeta rewrites name/version/description; id + entries preserved', async
 		description: 'hi'
 	})
 	expect(m.app).toBe('src/app.ts') // entries untouched
+})
+
+test('saveMeta updates imports and preserves the React compiler setting', async () => {
+	const vol = fakeVolume()
+	await createProject(vol, 'React Counter', 'alice.react-counter', 'react')
+	await saveMeta(vol, 'alice.react-counter', {
+		name: 'React Counter',
+		imports: { react: 'https://esm.sh/react@19.1.2' }
+	})
+	const meta = JSON.parse(vol.dump()['/projects/alice.react-counter/project.json']!)
+	expect(meta.imports).toEqual({ react: 'https://esm.sh/react@19.1.2' })
+	expect(meta.compiler).toEqual({ jsx: 'react-jsx' })
 })
 
 test('removeProject drops the project folder and its scratch', async () => {

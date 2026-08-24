@@ -518,6 +518,11 @@
 	resize: vertical;
 }
 
+.app-code-imports-input {
+	font-family: var(--app-code-mono);
+	font-size: 12px;
+}
+
 .app-code-input[readonly] {
 	background: var(--surface);
 	color: var(--app-code-muted);

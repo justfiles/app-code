@@ -20,6 +20,14 @@ export const ICON = (slug: string) => `/projects/${slug}/icon`
 // The build contract devkit reads (identity + entry/icon paths). Project root.
 export const PROJECT = (slug: string) => `/projects/${slug}/project.json`
 
+export type ProjectTemplate = 'plain' | 'react'
+
+const REACT_IMPORTS = {
+	react: 'https://esm.sh/react@19.1.1',
+	'react/jsx-runtime': 'https://esm.sh/react@19.1.1/jsx-runtime',
+	'react-dom/client': 'https://esm.sh/react-dom@19.1.1/client?bundle&deps=react@19.1.1'
+}
+
 // Catalog bundle id: `<github-login>.<app>`, with lowercase segments and internal hyphens.
 // It is also a strict subset of the folder slug, so the id is always a valid folder name.
 export const bundleIdSchema = v.pipe(
@@ -64,11 +72,12 @@ export async function projectName(vol: VolumeApi, slug: string): Promise<string>
 export async function createProject(
 	vol: VolumeApi,
 	name: string,
-	id: string
+	id: string,
+	template: ProjectTemplate = 'plain'
 ): Promise<{ slug: string }> {
 	v.parse(bundleIdSchema, id)
 	if (await vol.exists(`/projects/${id}`)) throw new Error(`project id already exists: ${id}`)
-	await seed(vol, id, name)
+	await seed(vol, id, name, template)
 	return { slug: id }
 }
 
@@ -82,11 +91,18 @@ export function slugifyName(name: string): string {
 	return s || 'app'
 }
 
-// Write the framework-free starter files and `project.json`.
-export async function seed(vol: VolumeApi, id: string, name: string): Promise<void> {
+export async function seed(
+	vol: VolumeApi,
+	id: string,
+	name: string,
+	template: ProjectTemplate = 'plain'
+): Promise<void> {
 	await vol.writeFile(SRC(id, '/app.ts'), encoder.encode(starterApp))
-	await vol.writeFile(SRC(id, '/gui.ts'), encoder.encode(starterGui))
-	await writeProjectManifest(vol, id, name)
+	await vol.writeFile(
+		SRC(id, template === 'react' ? '/gui.tsx' : '/gui.ts'),
+		encoder.encode(template === 'react' ? reactStarterGui : starterGui)
+	)
+	await writeProjectManifest(vol, id, name, template)
 }
 
 // Delete a project: its folder plus the devkit scratch (best-effort — it may not
@@ -97,8 +113,8 @@ export async function removeProject(vol: VolumeApi, slug: string): Promise<void>
 	await vol.rm(`/.devkit/${slug}`, { recursive: true }).catch(() => {})
 }
 
-// The build contract on disk: identity + the fixed entry/icon paths. `version`
-// and `description` are optional metadata the settings screen edits.
+// The build contract on disk. React projects also declare pinned imports and
+// opt in to automatic JSX.
 export type ProjectMeta = {
 	id: string
 	name: string
@@ -107,6 +123,8 @@ export type ProjectMeta = {
 	app: string
 	gui?: string
 	icon?: string
+	imports?: Record<string, string>
+	compiler?: { jsx: 'react-jsx' }
 }
 
 // Read the open project's manifest to populate the settings form.
@@ -114,12 +132,17 @@ export async function readMeta(vol: VolumeApi, slug: string): Promise<ProjectMet
 	return JSON.parse(await readText(vol, PROJECT(slug))) as ProjectMeta
 }
 
-// Rewrite name/version/description; id, entries, and icon are untouched. The
-// bundle id is immutable in v1, so the folder never moves.
+// Rewrite the editable metadata and imports. The id, entries, compiler, and icon
+// stay unchanged. The bundle id is immutable in v1, so the folder never moves.
 export async function saveMeta(
 	vol: VolumeApi,
 	slug: string,
-	fields: { name: string; version?: string; description?: string }
+	fields: {
+		name: string
+		version?: string
+		description?: string
+		imports?: Record<string, string>
+	}
 ): Promise<void> {
 	const prev = await readMeta(vol, slug)
 	const next = { ...prev, ...fields }
@@ -131,9 +154,19 @@ export async function saveMeta(
 export async function writeProjectManifest(
 	vol: VolumeApi,
 	slug: string,
-	name = slug
+	name = slug,
+	template: ProjectTemplate = 'plain'
 ): Promise<void> {
-	const manifest = { id: slug, name, icon: 'icon', app: 'src/app.ts', gui: 'src/gui.ts' }
+	const manifest = {
+		id: slug,
+		name,
+		icon: 'icon',
+		app: 'src/app.ts',
+		gui: template === 'react' ? 'src/gui.tsx' : 'src/gui.ts',
+		...(template === 'react'
+			? { imports: REACT_IMPORTS, compiler: { jsx: 'react-jsx' as const } }
+			: {})
+	}
 	await vol.writeFile(PROJECT(slug), encoder.encode(`${JSON.stringify(manifest, null, 2)}\n`))
 }
 
@@ -180,6 +213,34 @@ export const gui = defineGUI<typeof app>({
 
 		render(state)
 		return { update: render, unmount: () => button.remove() }
+	}
+})
+`
+
+const reactStarterGui = `import { defineGUI } from '@justfiles/app/browser'
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { type CounterState, app } from './app'
+
+export const gui = defineGUI<typeof app>({
+	mount(element, state, { client }) {
+		const root = createRoot(element)
+		const render = (next: CounterState | null) => {
+			root.render(
+				<StrictMode>
+					<button
+						type="button"
+						style={{ backgroundColor: '#007aff', color: 'white' }}
+						onClick={() => void client.increment({ amount: 1 })}
+					>
+						Count: {next?.count ?? 0}
+					</button>
+				</StrictMode>
+			)
+		}
+
+		render(state)
+		return { update: render, unmount: () => root.unmount() }
 	}
 })
 `
